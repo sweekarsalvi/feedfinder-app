@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,58 +16,118 @@ import {
   Utensils
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 const StudentDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [mealFilter, setMealFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [userId, setUserId] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [messes, setMesses] = useState<any[]>([]);
   const navigate = useNavigate();
+  const { toast } = useToast();
 
-  // Mock data for messes and menus
-  const messes = [
-    {
-      id: 1,
-      name: "Sunrise Mess",
-      location: "Block A",
-      rating: 4.5,
-      isFavorite: true,
-      menu: {
-        breakfast: [
-          { name: "Idli Sambar", category: "veg", price: 25, rating: 4.3 },
-          { name: "Poha", category: "veg", price: 20, rating: 4.1 }
-        ],
-        lunch: [
-          { name: "Dal Rice", category: "veg", price: 45, rating: 4.4 },
-          { name: "Chicken Curry", category: "non-veg", price: 80, rating: 4.6 }
-        ],
-        dinner: [
-          { name: "Chapati Sabzi", category: "veg", price: 40, rating: 4.2 },
-          { name: "Fish Curry", category: "non-veg", price: 85, rating: 4.5 }
-        ]
+  useEffect(() => {
+    checkAuth();
+    fetchMesses();
+  }, []);
+
+  const checkAuth = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      navigate("/auth/login?role=student");
+      return;
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id, role")
+      .eq("user_id", session.user.id)
+      .single();
+
+    if (!profile || profile.role !== "student") {
+      await supabase.auth.signOut();
+      navigate("/auth/login?role=student");
+      return;
+    }
+
+    setUserId(profile.id);
+    fetchFavorites(profile.id);
+  };
+
+  const fetchMesses = async () => {
+    const { data, error } = await supabase
+      .from("messes")
+      .select("*")
+      .eq("is_active", true)
+      .eq("is_verified", true);
+
+    if (!error && data) {
+      setMesses(data.map(mess => ({
+        id: mess.id,
+        name: mess.name,
+        location: mess.address,
+        rating: 4.5,
+        menu: {
+          breakfast: [],
+          lunch: [],
+          dinner: []
+        }
+      })));
+    }
+  };
+
+  const fetchFavorites = async (profileId: string) => {
+    const { data, error } = await supabase
+      .from("favorites")
+      .select("mess_id")
+      .eq("user_id", profileId);
+
+    if (!error && data) {
+      setFavorites(data.map(f => f.mess_id));
+    }
+  };
+
+  const toggleFavorite = async (messId: any) => {
+    if (!userId) return;
+
+    const isFavorite = favorites.includes(messId);
+
+    if (isFavorite) {
+      const { error } = await supabase
+        .from("favorites")
+        .delete()
+        .eq("user_id", userId)
+        .eq("mess_id", messId);
+
+      if (!error) {
+        setFavorites(favorites.filter(id => id !== messId));
+        toast({
+          title: "Removed from favorites",
+          description: "Mess removed from your favorites",
+        });
       }
-    },
-    {
-      id: 2,
-      name: "Tasty Bites",
-      location: "Block B",
-      rating: 4.2,
-      isFavorite: false,
-      menu: {
-        breakfast: [
-          { name: "Dosa", category: "veg", price: 30, rating: 4.4 },
-          { name: "Upma", category: "veg", price: 18, rating: 3.9 }
-        ],
-        lunch: [
-          { name: "Rajma Rice", category: "veg", price: 50, rating: 4.3 },
-          { name: "Egg Curry", category: "non-veg", price: 60, rating: 4.1 }
-        ],
-        dinner: [
-          { name: "Paratha", category: "veg", price: 35, rating: 4.0 },
-          { name: "Mutton Curry", category: "non-veg", price: 120, rating: 4.7 }
-        ]
+    } else {
+      const { error } = await supabase
+        .from("favorites")
+        .insert({ user_id: userId, mess_id: messId });
+
+      if (!error) {
+        setFavorites([...favorites, messId]);
+        toast({
+          title: "Added to favorites",
+          description: "Mess added to your favorites",
+        });
       }
     }
-  ];
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/");
+  };
 
   const getCurrentMealTime = () => {
     const hour = new Date().getHours();
@@ -145,7 +205,7 @@ const StudentDashboard = () => {
             <Button 
               variant="ghost" 
               size="icon"
-              onClick={() => navigate("/")}
+              onClick={handleLogout}
             >
               <LogOut className="w-4 h-4" />
             </Button>
@@ -217,7 +277,7 @@ const StudentDashboard = () => {
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       {mess.name}
-                      {mess.isFavorite && (
+                      {favorites.includes(mess.id) && (
                         <Heart className="w-4 h-4 fill-accent text-accent" />
                       )}
                     </CardTitle>
@@ -234,11 +294,12 @@ const StudentDashboard = () => {
                   </div>
                   
                   <Button 
-                    variant={mess.isFavorite ? "accent" : "outline"}
+                    variant={favorites.includes(mess.id) ? "default" : "outline"}
                     size="sm"
+                    onClick={() => toggleFavorite(mess.id)}
                   >
-                    <Heart className="w-4 h-4 mr-2" />
-                    {mess.isFavorite ? "Favorited" : "Add to Favorites"}
+                    <Heart className={`w-4 h-4 mr-2 ${favorites.includes(mess.id) ? 'fill-current' : ''}`} />
+                    {favorites.includes(mess.id) ? "Favorited" : "Add to Favorites"}
                   </Button>
                 </div>
               </CardHeader>

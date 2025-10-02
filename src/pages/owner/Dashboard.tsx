@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const OwnerDashboard = () => {
   const [showAddForm, setShowAddForm] = useState(false);
@@ -31,6 +32,35 @@ const OwnerDashboard = () => {
   });
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      navigate("/auth/login?role=mess_owner");
+      return;
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("user_id", session.user.id)
+      .single();
+
+    if (!profile || profile.role !== "mess_owner") {
+      await supabase.auth.signOut();
+      navigate("/auth/login?role=mess_owner");
+      return;
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/");
+  };
 
   // Mock data for owner's menu items
   const [menuItems, setMenuItems] = useState([
@@ -128,7 +158,7 @@ const OwnerDashboard = () => {
             <Button 
               variant="ghost" 
               size="icon"
-              onClick={() => navigate("/")}
+              onClick={handleLogout}
             >
               <LogOut className="w-4 h-4" />
             </Button>
