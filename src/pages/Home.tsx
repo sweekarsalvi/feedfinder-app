@@ -1,11 +1,14 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, ChefHat, Shield } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import heroFood from "@/assets/hero-food.jpg";
+import RoleSelectionDialog from "@/components/RoleSelectionDialog";
 
 const Home = () => {
   const navigate = useNavigate();
+  const [showRoleDialog, setShowRoleDialog] = useState(false);
 
   const roles = [
     {
@@ -52,7 +55,7 @@ const Home = () => {
                 </p>
               </div>
               <div className="flex flex-col sm:flex-row gap-4">
-                <Button variant="hero" size="lg" onClick={() => navigate("/auth/login")}>
+                <Button variant="hero" size="lg" onClick={() => setShowRoleDialog(true)}>
                   Get Started
                 </Button>
                 <Button variant="outline" size="lg">
@@ -91,7 +94,10 @@ const Home = () => {
                 <Card 
                   key={role.title} 
                   className="relative group cursor-pointer transition-all duration-300 hover:shadow-hover border-2 hover:border-primary"
-                  onClick={() => navigate(role.path)}
+                  onClick={() => {
+                    const roleValue = role.title === "Mess Owner" ? "mess_owner" : role.title.toLowerCase();
+                    navigate(`/auth/login?role=${roleValue}`);
+                  }}
                 >
                   <CardHeader className="text-center space-y-4">
                     <div className="mx-auto w-16 h-16 bg-gradient-primary rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
@@ -108,10 +114,11 @@ const Home = () => {
                       className="mt-6 w-full"
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(role.path);
+                        const roleValue = role.title === "Mess Owner" ? "mess_owner" : role.title.toLowerCase();
+                        navigate(`/auth/login?role=${roleValue}`);
                       }}
                     >
-                      Enter as {role.title}
+                      Login as {role.title}
                     </Button>
                   </CardContent>
                 </Card>
@@ -183,6 +190,8 @@ const Home = () => {
           </div>
         </div>
       </section>
+
+      <RoleSelectionDialog open={showRoleDialog} onOpenChange={setShowRoleDialog} />
     </div>
   );
 };

@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Mail, Lock, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -19,6 +20,47 @@ const Register = () => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const roleParam = searchParams.get("role");
+    if (roleParam) {
+      handleInputChange("role", roleParam);
+    }
+
+    // Check if user is already logged in
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("user_id", session.user.id)
+          .single();
+        
+        if (profile) {
+          redirectToDashboard(profile.role);
+        }
+      }
+    };
+    checkAuth();
+  }, [searchParams]);
+
+  const redirectToDashboard = (userRole: string) => {
+    switch (userRole) {
+      case "student":
+        navigate("/student/dashboard");
+        break;
+      case "mess_owner":
+        navigate("/owner/dashboard");
+        break;
+      case "admin":
+        navigate("/admin/dashboard");
+        break;
+      default:
+        navigate("/");
+    }
+  };
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -45,19 +87,59 @@ const Register = () => {
       return;
     }
 
+    if (formData.password.length < 6) {
+      toast({
+        title: "Error",
+        description: "Password must be at least 6 characters",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      toast({
-        title: "Registration Successful",
-        description: `Account created successfully! Welcome to the platform.`,
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.name,
+            role: formData.role,
+          },
+          emailRedirectTo: `${window.location.origin}/`,
+        },
       });
-      
-      // Redirect to login
-      navigate("/auth/login");
-    }, 1500);
+
+      if (error) throw error;
+
+      if (data.user) {
+        toast({
+          title: "Registration Successful",
+          description: "Account created! Logging you in...",
+        });
+        
+        // Wait a moment for profile to be created
+        setTimeout(async () => {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("user_id", data.user!.id)
+            .single();
+          
+          if (profile) {
+            redirectToDashboard(profile.role);
+          }
+        }, 1000);
+      }
+    } catch (error: any) {
+      toast({
+        title: "Registration Failed",
+        description: error.message || "Could not create account",
+        variant: "destructive",
+      });
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -95,7 +177,8 @@ const Register = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="student">Student</SelectItem>
-                    <SelectItem value="owner">Mess Owner</SelectItem>
+                    <SelectItem value="mess_owner">Mess Owner</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

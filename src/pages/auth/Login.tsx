@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Mail, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -15,10 +16,51 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const roleParam = searchParams.get("role");
+    if (roleParam) {
+      setRole(roleParam);
+    }
+
+    // Check if user is already logged in
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("user_id", session.user.id)
+          .single();
+        
+        if (profile) {
+          redirectToDashboard(profile.role);
+        }
+      }
+    };
+    checkAuth();
+  }, [searchParams]);
+
+  const redirectToDashboard = (userRole: string) => {
+    switch (userRole) {
+      case "student":
+        navigate("/student/dashboard");
+        break;
+      case "mess_owner":
+        navigate("/owner/dashboard");
+        break;
+      case "admin":
+        navigate("/admin/dashboard");
+        break;
+      default:
+        navigate("/");
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password || !role) {
+    if (!email || !password) {
       toast({
         title: "Error",
         description: "Please fill in all fields",
@@ -29,29 +71,50 @@ const Login = () => {
 
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      toast({
-        title: "Login Successful",
-        description: `Welcome back! Redirecting to your ${role} dashboard.`,
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
-      
-      // Redirect based on role
-      switch (role) {
-        case "student":
-          navigate("/student/dashboard");
-          break;
-        case "owner":
-          navigate("/owner/dashboard");
-          break;
-        case "admin":
-          navigate("/admin/dashboard");
-          break;
-        default:
-          navigate("/");
+
+      if (error) throw error;
+
+      if (data.user) {
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("user_id", data.user.id)
+          .single();
+
+        if (profileError) throw profileError;
+
+        if (role && profile.role !== role) {
+          await supabase.auth.signOut();
+          toast({
+            title: "Error",
+            description: `This account is not registered as a ${role}`,
+            variant: "destructive",
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        toast({
+          title: "Login Successful",
+          description: `Welcome back! Redirecting to your dashboard.`,
+        });
+        
+        redirectToDashboard(profile.role);
       }
-    }, 1500);
+    } catch (error: any) {
+      toast({
+        title: "Login Failed",
+        description: error.message || "Invalid credentials",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -89,7 +152,7 @@ const Login = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="student">Student</SelectItem>
-                    <SelectItem value="owner">Mess Owner</SelectItem>
+                    <SelectItem value="mess_owner">Mess Owner</SelectItem>
                     <SelectItem value="admin">Admin</SelectItem>
                   </SelectContent>
                 </Select>
