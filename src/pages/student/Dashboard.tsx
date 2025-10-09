@@ -58,25 +58,53 @@ const StudentDashboard = () => {
   };
 
   const fetchMesses = async () => {
-    const { data, error } = await supabase
+    const { data: messesData, error: messesError } = await supabase
       .from("messes")
       .select("*")
       .eq("is_active", true)
       .eq("is_verified", true);
 
-    if (!error && data) {
-      setMesses(data.map(mess => ({
-        id: mess.id,
-        name: mess.name,
-        location: mess.address,
-        rating: 4.5,
-        menu: {
-          breakfast: [],
-          lunch: [],
-          dinner: []
-        }
-      })));
+    if (messesError || !messesData) {
+      console.error("Error fetching messes:", messesError);
+      return;
     }
+
+    // Fetch menus for all messes
+    const { data: menusData, error: menusError } = await supabase
+      .from("menus")
+      .select("*")
+      .eq("is_available", true);
+
+    if (menusError) {
+      console.error("Error fetching menus:", menusError);
+    }
+
+    // Group menus by mess_id and meal_type
+    const menusByMess: Record<string, { breakfast: any[], lunch: any[], dinner: any[] }> = {};
+    
+    menusData?.forEach(menu => {
+      if (!menusByMess[menu.mess_id]) {
+        menusByMess[menu.mess_id] = { breakfast: [], lunch: [], dinner: [] };
+      }
+      
+      const items = Array.isArray(menu.items) ? menu.items : [];
+      const mealType = menu.meal_type as 'breakfast' | 'lunch' | 'dinner';
+      
+      menusByMess[menu.mess_id][mealType] = items.map((item: any) => ({
+        ...item,
+        price: menu.price || item.price || 0,
+        rating: item.rating || 4.0
+      }));
+    });
+
+    // Combine messes with their menus
+    setMesses(messesData.map(mess => ({
+      id: mess.id,
+      name: mess.name,
+      location: mess.address,
+      rating: 4.5,
+      menu: menusByMess[mess.id] || { breakfast: [], lunch: [], dinner: [] }
+    })));
   };
 
   const fetchFavorites = async (profileId: string) => {
