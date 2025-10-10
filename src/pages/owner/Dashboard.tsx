@@ -12,10 +12,9 @@ import {
   ChefHat, 
   User, 
   LogOut, 
-  Edit, 
   Trash2,
   Upload,
-  MessageSquare
+  AlertTriangle
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
@@ -23,12 +22,22 @@ import { supabase } from "@/integrations/supabase/client";
 
 const OwnerDashboard = () => {
   const [showAddForm, setShowAddForm] = useState(false);
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const [mess, setMess] = useState<any>(null);
+  const [menuItems, setMenuItems] = useState<any[]>([]);
   const [newItem, setNewItem] = useState({
     name: "",
     category: "",
     mealType: "",
     price: "",
     description: ""
+  });
+  const [newMess, setNewMess] = useState({
+    name: "",
+    address: "",
+    description: "",
+    email: "",
+    phone: ""
   });
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -46,7 +55,7 @@ const OwnerDashboard = () => {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role")
+      .select("role, id")
       .eq("user_id", session.user.id)
       .single();
 
@@ -55,6 +64,52 @@ const OwnerDashboard = () => {
       navigate("/auth/login?role=mess_owner");
       return;
     }
+
+    setProfileId(profile.id);
+    await fetchMess(profile.id);
+  };
+
+  const fetchMess = async (ownerId: string) => {
+    const { data: messData, error } = await supabase
+      .from("messes")
+      .select("*")
+      .eq("owner_id", ownerId)
+      .maybeSingle();
+
+    if (error && error.code !== "PGRST116") {
+      console.error("Error fetching mess:", error);
+      return;
+    }
+
+    if (messData) {
+      setMess(messData);
+      await fetchMenus(messData.id);
+    }
+  };
+
+  const fetchMenus = async (messId: string) => {
+    const { data, error } = await supabase
+      .from("menus")
+      .select("*")
+      .eq("mess_id", messId)
+      .eq("date", new Date().toISOString().split("T")[0])
+      .order("meal_type", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching menus:", error);
+      return;
+    }
+
+    // Flatten menu items from all meals
+    const allItems = data?.flatMap(menu => 
+      (menu.items as any[]).map(item => ({
+        ...item,
+        mealType: menu.meal_type,
+        menuId: menu.id
+      }))
+    ) || [];
+
+    setMenuItems(allItems);
   };
 
   const handleLogout = async () => {
@@ -62,49 +117,8 @@ const OwnerDashboard = () => {
     navigate("/");
   };
 
-  // Mock data for owner's menu items
-  const [menuItems, setMenuItems] = useState([
-    {
-      id: 1,
-      name: "Idli Sambar",
-      category: "veg",
-      mealType: "breakfast",
-      price: 25,
-      description: "Soft idlis with spicy sambar and coconut chutney",
-      rating: 4.3,
-      reviews: 23
-    },
-    {
-      id: 2,
-      name: "Chicken Curry",
-      category: "non-veg",
-      mealType: "lunch",
-      price: 80,
-      description: "Spicy chicken curry with rice and pickle",
-      rating: 4.6,
-      reviews: 41
-    },
-    {
-      id: 3,
-      name: "Dal Rice",
-      category: "veg",
-      mealType: "lunch",
-      price: 45,
-      description: "Yellow dal with steamed rice and ghee",
-      rating: 4.4,
-      reviews: 35
-    }
-  ]);
-
-  const stats = [
-    { label: "Total Menu Items", value: menuItems.length, color: "primary" },
-    { label: "Average Rating", value: "4.4★", color: "secondary" },
-    { label: "Total Reviews", value: "99", color: "accent" },
-    { label: "Today's Orders", value: "47", color: "destructive" }
-  ];
-
-  const handleAddItem = () => {
-    if (!newItem.name || !newItem.category || !newItem.mealType || !newItem.price) {
+  const handleCreateMess = async () => {
+    if (!newMess.name || !newMess.address || !profileId) {
       toast({
         title: "Error",
         description: "Please fill in all required fields",
@@ -113,15 +127,111 @@ const OwnerDashboard = () => {
       return;
     }
 
-    const item = {
-      id: Date.now(),
-      ...newItem,
+    const { data, error } = await supabase
+      .from("messes")
+      .insert({
+        owner_id: profileId,
+        name: newMess.name,
+        address: newMess.address,
+        description: newMess.description,
+        email: newMess.email,
+        phone: newMess.phone,
+        is_active: true,
+        is_verified: false
+      })
+      .select()
+      .single();
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create mess. Please try again.",
+        variant: "destructive",
+      });
+      console.error("Error creating mess:", error);
+      return;
+    }
+
+    setMess(data);
+    setNewMess({ name: "", address: "", description: "", email: "", phone: "" });
+    
+    toast({
+      title: "Success",
+      description: "Mess created! Waiting for admin approval to be visible to students.",
+    });
+  };
+
+  const handleAddItem = async () => {
+    if (!newItem.name || !newItem.category || !newItem.mealType || !newItem.price || !mess) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+    
+    // Check if menu exists for this meal type today
+    const { data: existingMenu } = await supabase
+      .from("menus")
+      .select("*")
+      .eq("mess_id", mess.id)
+      .eq("meal_type", newItem.mealType)
+      .eq("date", today)
+      .maybeSingle();
+
+    const newMenuItem = {
+      name: newItem.name,
+      category: newItem.category,
       price: parseInt(newItem.price),
-      rating: 0,
-      reviews: 0
+      rating: 0
     };
 
-    setMenuItems([...menuItems, item]);
+    if (existingMenu) {
+      // Update existing menu by adding item
+      const updatedItems = [...(existingMenu.items as any[]), newMenuItem];
+      
+      const { error } = await supabase
+        .from("menus")
+        .update({ items: updatedItems })
+        .eq("id", existingMenu.id);
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to add menu item.",
+          variant: "destructive",
+        });
+        console.error("Error updating menu:", error);
+        return;
+      }
+    } else {
+      // Create new menu
+      const { error } = await supabase
+        .from("menus")
+        .insert({
+          mess_id: mess.id,
+          meal_type: newItem.mealType,
+          date: today,
+          items: [newMenuItem],
+          price: parseInt(newItem.price),
+          is_available: true
+        });
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to create menu.",
+          variant: "destructive",
+        });
+        console.error("Error creating menu:", error);
+        return;
+      }
+    }
+
+    await fetchMenus(mess.id);
     setNewItem({ name: "", category: "", mealType: "", price: "", description: "" });
     setShowAddForm(false);
     
@@ -131,8 +241,38 @@ const OwnerDashboard = () => {
     });
   };
 
-  const handleDeleteItem = (id: number) => {
-    setMenuItems(menuItems.filter(item => item.id !== id));
+  const handleDeleteItem = async (item: any) => {
+    if (!mess) return;
+
+    const today = new Date().toISOString().split("T")[0];
+    
+    const { data: menu } = await supabase
+      .from("menus")
+      .select("*")
+      .eq("mess_id", mess.id)
+      .eq("meal_type", item.mealType)
+      .eq("date", today)
+      .maybeSingle();
+
+    if (!menu) return;
+
+    const updatedItems = (menu.items as any[]).filter(i => i.name !== item.name);
+    
+    if (updatedItems.length === 0) {
+      // Delete menu if no items left
+      await supabase
+        .from("menus")
+        .delete()
+        .eq("id", menu.id);
+    } else {
+      // Update menu with remaining items
+      await supabase
+        .from("menus")
+        .update({ items: updatedItems })
+        .eq("id", menu.id);
+    }
+
+    await fetchMenus(mess.id);
     toast({
       title: "Success",
       description: "Menu item deleted successfully!",
@@ -167,182 +307,285 @@ const OwnerDashboard = () => {
       </header>
 
       <div className="container mx-auto px-4 py-8 max-w-6xl">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {stats.map((stat, index) => (
-            <Card key={index} className="text-center">
-              <CardHeader className="pb-2">
-                <CardDescription className="text-sm">{stat.label}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold text-primary">{stat.value}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {/* Show mess creation form if no mess exists */}
+        {!mess ? (
+          <Card className="max-w-2xl mx-auto">
+            <CardHeader>
+              <CardTitle>Create Your Mess</CardTitle>
+              <CardDescription>Fill in your mess details to get started</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="messName">Mess Name *</Label>
+                <Input
+                  id="messName"
+                  placeholder="e.g., Annapurna Mess"
+                  value={newMess.name}
+                  onChange={(e) => setNewMess({...newMess, name: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="address">Address *</Label>
+                <Input
+                  id="address"
+                  placeholder="e.g., Near Main Gate, Campus Road"
+                  value={newMess.address}
+                  onChange={(e) => setNewMess({...newMess, address: e.target.value})}
+                />
+              </div>
 
-        {/* Menu Management Section */}
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold">Menu Management</h2>
-            <Button 
-              variant="hero" 
-              onClick={() => setShowAddForm(!showAddForm)}
-              className="flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Add New Item
-            </Button>
-          </div>
+              <div className="space-y-2">
+                <Label htmlFor="messDescription">Description</Label>
+                <Textarea
+                  id="messDescription"
+                  placeholder="Describe your mess..."
+                  value={newMess.description}
+                  onChange={(e) => setNewMess({...newMess, description: e.target.value})}
+                />
+              </div>
 
-          {/* Add New Item Form */}
-          {showAddForm && (
-            <Card className="shadow-hover">
-              <CardHeader>
-                <CardTitle>Add New Menu Item</CardTitle>
-                <CardDescription>Fill in the details for your new menu item</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Item Name</Label>
-                    <Input
-                      id="name"
-                      placeholder="e.g., Chicken Biryani"
-                      value={newItem.name}
-                      onChange={(e) => setNewItem({...newItem, name: e.target.value})}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="price">Price (₹)</Label>
-                    <Input
-                      id="price"
-                      type="number"
-                      placeholder="e.g., 50"
-                      value={newItem.price}
-                      onChange={(e) => setNewItem({...newItem, price: e.target.value})}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Category</Label>
-                    <Select value={newItem.category} onValueChange={(value) => setNewItem({...newItem, category: value})}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="veg">Vegetarian</SelectItem>
-                        <SelectItem value="non-veg">Non-Vegetarian</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Meal Type</Label>
-                    <Select value={newItem.mealType} onValueChange={(value) => setNewItem({...newItem, mealType: value})}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select meal type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="breakfast">Breakfast</SelectItem>
-                        <SelectItem value="lunch">Lunch</SelectItem>
-                        <SelectItem value="dinner">Dinner</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
+              <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    placeholder="Describe your dish..."
-                    value={newItem.description}
-                    onChange={(e) => setNewItem({...newItem, description: e.target.value})}
+                  <Label htmlFor="messEmail">Email</Label>
+                  <Input
+                    id="messEmail"
+                    type="email"
+                    placeholder="mess@example.com"
+                    value={newMess.email}
+                    onChange={(e) => setNewMess({...newMess, email: e.target.value})}
                   />
                 </div>
 
-                <div className="flex gap-4">
-                  <Button variant="hero" onClick={handleAddItem}>
-                    Add Item
-                  </Button>
-                  <Button variant="outline" onClick={() => setShowAddForm(false)}>
-                    Cancel
-                  </Button>
+                <div className="space-y-2">
+                  <Label htmlFor="messPhone">Phone</Label>
+                  <Input
+                    id="messPhone"
+                    type="tel"
+                    placeholder="+91-9876543210"
+                    value={newMess.phone}
+                    onChange={(e) => setNewMess({...newMess, phone: e.target.value})}
+                  />
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              </div>
 
-          {/* Menu Items List */}
-          <div className="grid gap-4">
-            {menuItems.map((item) => (
-              <Card key={item.id} className="shadow-card hover:shadow-hover transition-all duration-300">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold">{item.name}</h3>
-                        <Badge variant={item.category === "veg" ? "secondary" : "destructive"}>
-                          {item.category === "veg" ? "Veg" : "Non-Veg"}
-                        </Badge>
-                        <Badge variant="outline" className="capitalize">
-                          {item.mealType}
-                        </Badge>
-                      </div>
-                      
-                      <p className="text-muted-foreground mb-3">{item.description}</p>
-                      
-                      <div className="flex items-center gap-6 text-sm">
-                        <span className="font-semibold text-primary text-lg">₹{item.price}</span>
-                        <div className="flex items-center gap-1">
-                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                          <span>{item.rating}</span>
-                          <span className="text-muted-foreground">({item.reviews} reviews)</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="icon">
-                        <MessageSquare className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon">
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handleDeleteItem(item.id)}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </div>
+              <Button variant="hero" onClick={handleCreateMess} className="w-full">
+                Create Mess
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Mess Status Banner */}
+            {!mess.is_verified && (
+              <Card className="mb-6 border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                    <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                      Your mess is pending admin approval. You can add menu items, but they won't be visible to students until approved.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
-            ))}
-          </div>
+            )}
 
-          {menuItems.length === 0 && (
-            <Card className="text-center py-12">
-              <CardContent>
-                <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No menu items yet</h3>
-                <p className="text-muted-foreground mb-4">
-                  Start by adding your first menu item to showcase your delicious food!
-                </p>
-                <Button variant="hero" onClick={() => setShowAddForm(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Your First Item
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <Card className="text-center">
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-sm">Status</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Badge variant={mess.is_verified ? "secondary" : "destructive"}>
+                    {mess.is_verified ? "Verified" : "Pending"}
+                  </Badge>
+                </CardContent>
+              </Card>
+              
+              <Card className="text-center">
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-sm">Total Menu Items</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-2xl font-bold text-primary">{menuItems.length}</p>
+                </CardContent>
+              </Card>
+
+              <Card className="text-center">
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-sm">Mess Name</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm font-medium">{mess.name}</p>
+                </CardContent>
+              </Card>
+
+              <Card className="text-center">
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-sm">Location</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm">{mess.address}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Menu Management Section */}
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold">Menu Management</h2>
+                <Button 
+                  variant="hero" 
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add New Item
                 </Button>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+              </div>
+
+              {/* Add New Item Form */}
+              {showAddForm && (
+                <Card className="shadow-hover">
+                  <CardHeader>
+                    <CardTitle>Add New Menu Item</CardTitle>
+                    <CardDescription>Fill in the details for your new menu item</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="name">Item Name</Label>
+                        <Input
+                          id="name"
+                          placeholder="e.g., Chicken Biryani"
+                          value={newItem.name}
+                          onChange={(e) => setNewItem({...newItem, name: e.target.value})}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="price">Price (₹)</Label>
+                        <Input
+                          id="price"
+                          type="number"
+                          placeholder="e.g., 50"
+                          value={newItem.price}
+                          onChange={(e) => setNewItem({...newItem, price: e.target.value})}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Category</Label>
+                        <Select value={newItem.category} onValueChange={(value) => setNewItem({...newItem, category: value})}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="veg">Vegetarian</SelectItem>
+                            <SelectItem value="non-veg">Non-Vegetarian</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Meal Type</Label>
+                        <Select value={newItem.mealType} onValueChange={(value) => setNewItem({...newItem, mealType: value})}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select meal type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="breakfast">Breakfast</SelectItem>
+                            <SelectItem value="lunch">Lunch</SelectItem>
+                            <SelectItem value="dinner">Dinner</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="description">Description (Optional)</Label>
+                      <Textarea
+                        id="description"
+                        placeholder="Describe your dish..."
+                        value={newItem.description}
+                        onChange={(e) => setNewItem({...newItem, description: e.target.value})}
+                      />
+                    </div>
+
+                    <div className="flex gap-4">
+                      <Button variant="hero" onClick={handleAddItem}>
+                        Add Item
+                      </Button>
+                      <Button variant="outline" onClick={() => setShowAddForm(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Menu Items List */}
+              <div className="grid gap-4">
+                {menuItems.map((item, index) => (
+                  <Card key={index} className="shadow-card hover:shadow-hover transition-all duration-300">
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="text-lg font-semibold">{item.name}</h3>
+                            <Badge variant={item.category === "veg" ? "secondary" : "destructive"}>
+                              {item.category === "veg" ? "Veg" : "Non-Veg"}
+                            </Badge>
+                            <Badge variant="outline" className="capitalize">
+                              {item.mealType}
+                            </Badge>
+                          </div>
+                          
+                          <div className="flex items-center gap-6 text-sm mt-3">
+                            <span className="font-semibold text-primary text-lg">₹{item.price}</span>
+                            <div className="flex items-center gap-1">
+                              <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                              <span>{item.rating || 0}</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            onClick={() => handleDeleteItem(item)}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {menuItems.length === 0 && (
+                <Card className="text-center py-12">
+                  <CardContent>
+                    <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No menu items yet</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Start by adding your first menu item to showcase your delicious food!
+                    </p>
+                    <Button variant="hero" onClick={() => setShowAddForm(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Your First Item
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
