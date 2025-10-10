@@ -32,6 +32,43 @@ const StudentDashboard = () => {
   useEffect(() => {
     checkAuth();
     fetchMesses();
+
+    // Subscribe to real-time updates for messes
+    const messesChannel = supabase
+      .channel('messes-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messes'
+        },
+        () => {
+          fetchMesses();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to real-time updates for menus
+    const menusChannel = supabase
+      .channel('menus-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'menus'
+        },
+        () => {
+          fetchMesses();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messesChannel);
+      supabase.removeChannel(menusChannel);
+    };
   }, []);
 
   const checkAuth = async () => {
