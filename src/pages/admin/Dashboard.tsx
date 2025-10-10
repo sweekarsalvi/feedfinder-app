@@ -23,11 +23,33 @@ import { supabase } from "@/integrations/supabase/client";
 
 const AdminDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
+  const [pendingMesses, setPendingMesses] = useState<any[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     checkAuth();
+    fetchPendingMesses();
+
+    // Subscribe to real-time updates for messes
+    const messesChannel = supabase
+      .channel('admin-messes-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messes'
+        },
+        () => {
+          fetchPendingMesses();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messesChannel);
+    };
   }, []);
 
   const checkAuth = async () => {
@@ -48,6 +70,33 @@ const AdminDashboard = () => {
       navigate("/auth/login?role=admin");
       return;
     }
+  };
+
+  const fetchPendingMesses = async () => {
+    const { data, error } = await supabase
+      .from("messes")
+      .select(`
+        id,
+        name,
+        address,
+        email,
+        phone,
+        created_at,
+        owner_id,
+        profiles!messes_owner_id_fkey (
+          full_name,
+          email
+        )
+      `)
+      .eq("is_verified", false)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching pending messes:", error);
+      return;
+    }
+
+    setPendingMesses(data || []);
   };
 
   const handleLogout = async () => {
@@ -87,26 +136,6 @@ const AdminDashboard = () => {
     }
   ];
 
-  const [pendingOwners, setPendingOwners] = useState([
-    {
-      id: 1,
-      name: "Rajesh Kumar",
-      email: "rajesh@email.com",
-      messName: "Spice Garden",
-      location: "Block C",
-      documentsSubmitted: true,
-      appliedDate: "2024-01-15"
-    },
-    {
-      id: 2,
-      name: "Priya Sharma",
-      email: "priya@email.com",
-      messName: "Healthy Bites",
-      location: "Block D",
-      documentsSubmitted: false,
-      appliedDate: "2024-01-14"
-    }
-  ]);
 
   const recentReports = [
     {
@@ -129,21 +158,49 @@ const AdminDashboard = () => {
     }
   ];
 
-  const handleApproveOwner = (id: number) => {
-    setPendingOwners(pendingOwners.filter(owner => owner.id !== id));
+  const handleApproveMess = async (messId: string) => {
+    const { error } = await supabase
+      .from("messes")
+      .update({ is_verified: true })
+      .eq("id", messId);
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to approve mess. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     toast({
-      title: "Owner Approved",
-      description: "Mess owner has been approved and can now start uploading menus.",
+      title: "Mess Approved",
+      description: "Mess has been approved and is now visible to students.",
     });
+    fetchPendingMesses();
   };
 
-  const handleRejectOwner = (id: number) => {
-    setPendingOwners(pendingOwners.filter(owner => owner.id !== id));
+  const handleRejectMess = async (messId: string) => {
+    const { error } = await supabase
+      .from("messes")
+      .delete()
+      .eq("id", messId);
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to reject mess. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     toast({
-      title: "Owner Rejected",
-      description: "Application has been rejected and user has been notified.",
+      title: "Mess Rejected",
+      description: "Application has been rejected and removed.",
       variant: "destructive",
     });
+    fetchPendingMesses();
   };
 
   return (
@@ -264,26 +321,22 @@ const AdminDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {pendingOwners.map((owner) => (
-                    <div key={owner.id} className="flex items-center justify-between p-4 border rounded-lg">
+                  {pendingMesses.map((mess) => (
+                    <div key={mess.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="space-y-1">
                         <div className="flex items-center gap-3">
-                          <h4 className="font-semibold">{owner.name}</h4>
-                          <Badge variant="outline">{owner.messName}</Badge>
-                          <Badge variant={owner.documentsSubmitted ? "secondary" : "destructive"}>
-                            {owner.documentsSubmitted ? "Documents Complete" : "Documents Pending"}
-                          </Badge>
+                          <h4 className="font-semibold">{mess.profiles?.full_name || "Unknown Owner"}</h4>
+                          <Badge variant="outline">{mess.name}</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          {owner.email} • {owner.location} • Applied on {owner.appliedDate}
+                          {mess.email || mess.profiles?.email} • {mess.address} • Applied on {new Date(mess.created_at).toLocaleDateString()}
                         </p>
                       </div>
                       <div className="flex gap-2">
                         <Button 
                           variant="secondary" 
                           size="sm"
-                          onClick={() => handleApproveOwner(owner.id)}
-                          disabled={!owner.documentsSubmitted}
+                          onClick={() => handleApproveMess(mess.id)}
                         >
                           <Check className="w-4 h-4 mr-2" />
                           Approve
@@ -291,7 +344,7 @@ const AdminDashboard = () => {
                         <Button 
                           variant="destructive" 
                           size="sm"
-                          onClick={() => handleRejectOwner(owner.id)}
+                          onClick={() => handleRejectMess(mess.id)}
                         >
                           <X className="w-4 h-4 mr-2" />
                           Reject
@@ -300,7 +353,7 @@ const AdminDashboard = () => {
                     </div>
                   ))}
                   
-                  {pendingOwners.length === 0 && (
+                  {pendingMesses.length === 0 && (
                     <div className="text-center py-8">
                       <Check className="w-12 h-12 text-green-500 mx-auto mb-4" />
                       <h3 className="text-lg font-semibold mb-2">All caught up!</h3>
