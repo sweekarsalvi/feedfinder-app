@@ -24,12 +24,14 @@ import { supabase } from "@/integrations/supabase/client";
 const AdminDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [pendingMesses, setPendingMesses] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     checkAuth();
     fetchPendingMesses();
+    fetchOrders();
 
     // Subscribe to real-time updates for messes
     const messesChannel = supabase
@@ -47,8 +49,25 @@ const AdminDashboard = () => {
       )
       .subscribe();
 
+    // Subscribe to real-time updates for orders
+    const ordersChannel = supabase
+      .channel('admin-orders-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders'
+        },
+        () => {
+          fetchOrders();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(messesChannel);
+      supabase.removeChannel(ordersChannel);
     };
   }, []);
 
@@ -97,6 +116,29 @@ const AdminDashboard = () => {
     }
 
     setPendingMesses(data || []);
+  };
+
+  const fetchOrders = async () => {
+    const { data, error } = await supabase
+      .from("orders")
+      .select(`
+        *,
+        profiles!orders_student_id_fkey (
+          full_name,
+          email
+        ),
+        messes (
+          name
+        )
+      `)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching orders:", error);
+      return;
+    }
+
+    setOrders(data || []);
   };
 
   const handleLogout = async () => {
@@ -256,9 +298,10 @@ const AdminDashboard = () => {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="pending">Pending Approvals</TabsTrigger>
+            <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="reports">Reports</TabsTrigger>
             <TabsTrigger value="users">User Management</TabsTrigger>
           </TabsList>
@@ -358,6 +401,43 @@ const AdminDashboard = () => {
                       <Check className="w-12 h-12 text-green-500 mx-auto mb-4" />
                       <h3 className="text-lg font-semibold mb-2">All caught up!</h3>
                       <p className="text-muted-foreground">No pending approvals at the moment.</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="orders" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Orders</CardTitle>
+                <CardDescription>Student orders from all messes</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {orders.map((order) => (
+                    <div key={order.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                          <h4 className="font-semibold">{order.profiles?.full_name || "Unknown Student"}</h4>
+                          <Badge variant="outline">{order.messes?.name}</Badge>
+                          <Badge>{order.meal_type}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {order.profiles?.email} • Ordered on {new Date(order.created_at).toLocaleString()}
+                        </p>
+                        <Badge variant={order.status === "pending" ? "secondary" : "default"}>
+                          {order.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {orders.length === 0 && (
+                    <div className="text-center py-8">
+                      <h3 className="text-lg font-semibold mb-2">No Orders Yet</h3>
+                      <p className="text-muted-foreground">Orders from students will appear here.</p>
                     </div>
                   )}
                 </div>

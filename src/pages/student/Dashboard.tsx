@@ -130,7 +130,9 @@ const StudentDashboard = () => {
       menusByMess[menu.mess_id][mealType] = items.map((item: any) => ({
         ...item,
         price: menu.price || item.price || 0,
-        rating: item.rating || 4.0
+        rating: item.rating || 4.0,
+        menuId: menu.id,
+        messId: menu.mess_id
       }));
     });
 
@@ -201,6 +203,41 @@ const StudentDashboard = () => {
     return "dinner";
   };
 
+  const handleOrder = async (messId: string, menuId: string, mealType: string) => {
+    if (!userId) {
+      toast({
+        title: "Error",
+        description: "Please log in to place an order",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const { error } = await supabase
+      .from("orders")
+      .insert({
+        student_id: userId,
+        mess_id: messId,
+        menu_id: menuId,
+        meal_type: mealType,
+      });
+
+    if (error) {
+      console.error("Order error:", error);
+      toast({
+        title: "Error",
+        description: "Failed to place order. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Order Placed!",
+      description: "Your order has been sent to the mess owner and admin.",
+    });
+  };
+
   const filteredMesses = messes.filter(mess => {
     const matchesSearch = mess.name.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSearch;
@@ -241,9 +278,18 @@ const StudentDashboard = () => {
                   </div>
                 </div>
               </div>
-              <Button size="sm" variant="outline">
-                Rate
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline">
+                  Rate
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="default"
+                  onClick={() => handleOrder(meal.messId, meal.menuId, mealType)}
+                >
+                  Order
+                </Button>
+              </div>
             </div>
           ))}
         </div>

@@ -25,6 +25,7 @@ const OwnerDashboard = () => {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [mess, setMess] = useState<any>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const [newItem, setNewItem] = useState({
     name: "",
     category: "",
@@ -84,6 +85,7 @@ const OwnerDashboard = () => {
     if (messData) {
       setMess(messData);
       await fetchMenus(messData.id);
+      await fetchOrders(messData.id);
     }
   };
 
@@ -110,6 +112,27 @@ const OwnerDashboard = () => {
     ) || [];
 
     setMenuItems(allItems);
+  };
+
+  const fetchOrders = async (messId: string) => {
+    const { data, error } = await supabase
+      .from("orders")
+      .select(`
+        *,
+        profiles!orders_student_id_fkey (
+          full_name,
+          email
+        )
+      `)
+      .eq("mess_id", messId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching orders:", error);
+      return;
+    }
+
+    setOrders(data || []);
   };
 
   const handleLogout = async () => {
@@ -584,6 +607,44 @@ const OwnerDashboard = () => {
                 </Card>
               )}
             </div>
+
+            {/* Orders Section */}
+            <Card className="mt-8">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Star className="w-5 h-5 text-primary" />
+                  Recent Orders
+                </CardTitle>
+                <CardDescription>Orders from students</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {orders.map((order) => (
+                    <div key={order.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                          <h4 className="font-semibold">{order.profiles?.full_name || "Unknown Student"}</h4>
+                          <Badge>{order.meal_type}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {order.profiles?.email} • Ordered on {new Date(order.created_at).toLocaleString()}
+                        </p>
+                        <Badge variant={order.status === "pending" ? "secondary" : "default"}>
+                          {order.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {orders.length === 0 && (
+                    <div className="text-center py-8">
+                      <h3 className="text-lg font-semibold mb-2">No Orders Yet</h3>
+                      <p className="text-muted-foreground">Orders from students will appear here.</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           </>
         )}
       </div>

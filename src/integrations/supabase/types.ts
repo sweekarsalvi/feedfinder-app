@@ -144,6 +144,50 @@ export type Database = {
           },
         ]
       }
+      orders: {
+        Row: {
+          created_at: string
+          id: string
+          meal_type: string
+          menu_id: string
+          mess_id: string
+          order_date: string
+          order_time: string
+          status: string
+          student_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          meal_type: string
+          menu_id: string
+          mess_id: string
+          order_date?: string
+          order_time?: string
+          status?: string
+          student_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          meal_type?: string
+          menu_id?: string
+          mess_id?: string
+          order_date?: string
+          order_time?: string
+          status?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_menu"
+            columns: ["menu_id"]
+            isOneToOne: false
+            referencedRelation: "menus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
