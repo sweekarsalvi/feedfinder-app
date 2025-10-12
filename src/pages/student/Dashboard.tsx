@@ -26,50 +26,40 @@ const StudentDashboard = () => {
   const [userId, setUserId] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [messes, setMesses] = useState<any[]>([]);
+  const [myOrders, setMyOrders] = useState<any[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     checkAuth();
     fetchMesses();
-
-    // Subscribe to real-time updates for messes
-    const messesChannel = supabase
-      .channel('messes-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'messes'
-        },
-        () => {
-          fetchMesses();
-        }
-      )
-      .subscribe();
-
-    // Subscribe to real-time updates for menus
-    const menusChannel = supabase
-      .channel('menus-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'menus'
-        },
-        () => {
-          fetchMesses();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(messesChannel);
-      supabase.removeChannel(menusChannel);
-    };
   }, []);
+
+  useEffect(() => {
+    if (userId) {
+      fetchMyOrders(userId);
+
+      // Subscribe to real-time updates for orders
+      const ordersChannel = supabase
+        .channel('student-orders-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'orders'
+          },
+          () => {
+            fetchMyOrders(userId);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(ordersChannel);
+      };
+    }
+  }, [userId]);
 
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -154,6 +144,24 @@ const StudentDashboard = () => {
 
     if (!error && data) {
       setFavorites(data.map(f => f.mess_id));
+    }
+  };
+
+  const fetchMyOrders = async (profileId: string) => {
+    const { data, error } = await supabase
+      .from("orders")
+      .select(`
+        *,
+        messes (
+          name
+        )
+      `)
+      .eq("student_id", profileId)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    if (!error && data) {
+      setMyOrders(data);
     }
   };
 
@@ -378,6 +386,40 @@ const StudentDashboard = () => {
             </CardHeader>
           </Card>
         </div>
+
+        {/* My Orders Section */}
+        {myOrders.length > 0 && (
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle>My Recent Orders</CardTitle>
+              <CardDescription>Your latest order status</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {myOrders.map((order) => (
+                  <div key={order.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold">{order.messes?.name}</h4>
+                        <Badge variant="outline">{order.meal_type}</Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {new Date(order.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <Badge variant={
+                      order.status === "approved" ? "secondary" : 
+                      order.status === "rejected" ? "destructive" : 
+                      "outline"
+                    }>
+                      {order.status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Messes Grid */}
         <div className="grid gap-6">

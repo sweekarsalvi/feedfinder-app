@@ -423,13 +423,17 @@ const AdminDashboard = () => {
                           <h4 className="font-semibold">{order.profiles?.full_name || "Unknown Student"}</h4>
                           <Badge variant="outline">{order.messes?.name}</Badge>
                           <Badge>{order.meal_type}</Badge>
+                          <Badge variant={
+                            order.status === "approved" ? "secondary" : 
+                            order.status === "rejected" ? "destructive" : 
+                            "outline"
+                          }>
+                            {order.status}
+                          </Badge>
                         </div>
                         <p className="text-sm text-muted-foreground">
                           {order.profiles?.email} • Ordered on {new Date(order.created_at).toLocaleString()}
                         </p>
-                        <Badge variant={order.status === "pending" ? "secondary" : "default"}>
-                          {order.status}
-                        </Badge>
                       </div>
                     </div>
                   ))}

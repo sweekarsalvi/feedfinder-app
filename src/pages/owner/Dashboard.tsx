@@ -14,7 +14,9 @@ import {
   LogOut, 
   Trash2,
   Upload,
-  AlertTriangle
+  AlertTriangle,
+  Check,
+  X
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
@@ -133,6 +135,73 @@ const OwnerDashboard = () => {
     }
 
     setOrders(data || []);
+
+    // Subscribe to real-time updates for orders
+    const ordersChannel = supabase
+      .channel('owner-orders-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders'
+        },
+        () => {
+          fetchOrders(messId);
+        }
+      )
+      .subscribe();
+  };
+
+  const handleApproveOrder = async (orderId: string) => {
+    const { error } = await supabase
+      .from("orders")
+      .update({ status: "approved" })
+      .eq("id", orderId);
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to approve order. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Order Approved",
+      description: "Order has been approved successfully.",
+    });
+
+    if (mess) {
+      fetchOrders(mess.id);
+    }
+  };
+
+  const handleRejectOrder = async (orderId: string) => {
+    const { error } = await supabase
+      .from("orders")
+      .update({ status: "rejected" })
+      .eq("id", orderId);
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to reject order. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Order Rejected",
+      description: "Order has been rejected.",
+      variant: "destructive",
+    });
+
+    if (mess) {
+      fetchOrders(mess.id);
+    }
   };
 
   const handleLogout = async () => {
@@ -625,14 +694,38 @@ const OwnerDashboard = () => {
                         <div className="flex items-center gap-3">
                           <h4 className="font-semibold">{order.profiles?.full_name || "Unknown Student"}</h4>
                           <Badge>{order.meal_type}</Badge>
+                          <Badge variant={
+                            order.status === "approved" ? "secondary" : 
+                            order.status === "rejected" ? "destructive" : 
+                            "outline"
+                          }>
+                            {order.status}
+                          </Badge>
                         </div>
                         <p className="text-sm text-muted-foreground">
                           {order.profiles?.email} • Ordered on {new Date(order.created_at).toLocaleString()}
                         </p>
-                        <Badge variant={order.status === "pending" ? "secondary" : "default"}>
-                          {order.status}
-                        </Badge>
                       </div>
+                      {order.status === "pending" && (
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="secondary" 
+                            size="sm"
+                            onClick={() => handleApproveOrder(order.id)}
+                          >
+                            <Check className="w-4 h-4 mr-2" />
+                            Approve
+                          </Button>
+                          <Button 
+                            variant="destructive" 
+                            size="sm"
+                            onClick={() => handleRejectOrder(order.id)}
+                          >
+                            <X className="w-4 h-4 mr-2" />
+                            Reject
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                   
