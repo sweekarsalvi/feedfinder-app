@@ -25,6 +25,12 @@ const AdminDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [pendingMesses, setPendingMesses] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [stats, setStats] = useState({
+    totalStudents: 0,
+    activeMesses: 0,
+    averageRating: 0,
+    dailyOrders: 0
+  });
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -32,6 +38,7 @@ const AdminDashboard = () => {
     checkAuth();
     fetchPendingMesses();
     fetchOrders();
+    fetchStats();
 
     // Subscribe to real-time updates for messes
     const messesChannel = supabase
@@ -45,6 +52,7 @@ const AdminDashboard = () => {
         },
         () => {
           fetchPendingMesses();
+          fetchStats();
         }
       )
       .subscribe();
@@ -61,6 +69,39 @@ const AdminDashboard = () => {
         },
         () => {
           fetchOrders();
+          fetchStats();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to profiles changes for student count
+    const profilesChannel = supabase
+      .channel('admin-profiles-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles'
+        },
+        () => {
+          fetchStats();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to reviews changes for average rating
+    const reviewsChannel = supabase
+      .channel('admin-reviews-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'reviews'
+        },
+        () => {
+          fetchStats();
         }
       )
       .subscribe();
@@ -68,6 +109,8 @@ const AdminDashboard = () => {
     return () => {
       supabase.removeChannel(messesChannel);
       supabase.removeChannel(ordersChannel);
+      supabase.removeChannel(profilesChannel);
+      supabase.removeChannel(reviewsChannel);
     };
   }, []);
 
@@ -141,37 +184,75 @@ const AdminDashboard = () => {
     setOrders(data || []);
   };
 
+  const fetchStats = async () => {
+    // Fetch total students
+    const { count: studentsCount } = await supabase
+      .from("profiles")
+      .select("*", { count: 'exact', head: true })
+      .eq("role", "student");
+
+    // Fetch active messes
+    const { count: messesCount } = await supabase
+      .from("messes")
+      .select("*", { count: 'exact', head: true })
+      .eq("is_active", true)
+      .eq("is_verified", true);
+
+    // Fetch average rating from reviews
+    const { data: reviewsData } = await supabase
+      .from("reviews")
+      .select("rating");
+
+    const avgRating = reviewsData && reviewsData.length > 0
+      ? reviewsData.reduce((sum, r) => sum + r.rating, 0) / reviewsData.length
+      : 0;
+
+    // Fetch daily orders (today)
+    const today = new Date().toISOString().split('T')[0];
+    const { count: ordersCount } = await supabase
+      .from("orders")
+      .select("*", { count: 'exact', head: true })
+      .eq("order_date", today);
+
+    setStats({
+      totalStudents: studentsCount || 0,
+      activeMesses: messesCount || 0,
+      averageRating: avgRating,
+      dailyOrders: ordersCount || 0
+    });
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/");
   };
 
-  // Mock data for admin overview
-  const stats = [
+  // Stats data structure
+  const statsDisplay = [
     { 
       label: "Total Students", 
-      value: "1,234", 
+      value: stats.totalStudents.toString(), 
       icon: Users, 
       change: "+12%",
       color: "primary" 
     },
     { 
       label: "Active Messes", 
-      value: "15", 
+      value: stats.activeMesses.toString(), 
       icon: ChefHat, 
       change: "+2",
       color: "secondary" 
     },
     { 
       label: "Average Rating", 
-      value: "4.3★", 
+      value: stats.averageRating > 0 ? `${stats.averageRating.toFixed(1)}★` : "N/A", 
       icon: Star, 
       change: "+0.2",
       color: "accent" 
     },
     { 
       label: "Daily Orders", 
-      value: "892", 
+      value: stats.dailyOrders.toString(), 
       icon: TrendingUp, 
       change: "+5%",
       color: "destructive" 
@@ -275,7 +356,7 @@ const AdminDashboard = () => {
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Stats Overview */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {stats.map((stat, index) => {
+          {statsDisplay.map((stat, index) => {
             const Icon = stat.icon;
             return (
               <Card key={index} className="shadow-card hover:shadow-hover transition-all duration-300">
