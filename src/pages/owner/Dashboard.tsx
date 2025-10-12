@@ -28,6 +28,7 @@ const OwnerDashboard = () => {
   const [mess, setMess] = useState<any>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
   const [newItem, setNewItem] = useState({
     name: "",
     category: "",
@@ -88,6 +89,7 @@ const OwnerDashboard = () => {
       setMess(messData);
       await fetchMenus(messData.id);
       await fetchOrders(messData.id);
+      await fetchReviews(messData.id);
     }
   };
 
@@ -148,6 +150,60 @@ const OwnerDashboard = () => {
         },
         () => {
           fetchOrders(messId);
+        }
+      )
+      .subscribe();
+  };
+
+  const fetchReviews = async (messId: string) => {
+    // Get all menu IDs for this mess
+    const { data: menuData } = await supabase
+      .from("menus")
+      .select("id")
+      .eq("mess_id", messId);
+
+    if (!menuData || menuData.length === 0) {
+      setReviews([]);
+      return;
+    }
+
+    const menuIds = menuData.map(m => m.id);
+
+    const { data, error } = await supabase
+      .from("reviews")
+      .select(`
+        *,
+        profiles!reviews_reviewer_id_fkey (
+          full_name,
+          email
+        ),
+        menus!reviews_menu_id_fkey (
+          meal_type,
+          date
+        )
+      `)
+      .in("menu_id", menuIds)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching reviews:", error);
+      return;
+    }
+
+    setReviews(data || []);
+
+    // Subscribe to real-time updates for reviews
+    const reviewsChannel = supabase
+      .channel('owner-reviews-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'reviews'
+        },
+        () => {
+          fetchReviews(messId);
         }
       )
       .subscribe();
@@ -733,6 +789,56 @@ const OwnerDashboard = () => {
                     <div className="text-center py-8">
                       <h3 className="text-lg font-semibold mb-2">No Orders Yet</h3>
                       <p className="text-muted-foreground">Orders from students will appear here.</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Reviews Section */}
+            <Card className="mt-8">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Star className="w-5 h-5 text-primary" />
+                  Customer Reviews
+                </CardTitle>
+                <CardDescription>Feedback from students</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {reviews.map((review) => (
+                    <div key={review.id} className="p-4 border rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <h4 className="font-semibold">{review.profiles?.full_name || "Unknown Student"}</h4>
+                          <Badge variant="outline">{review.menus?.meal_type}</Badge>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {[...Array(5)].map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`w-4 h-4 ${
+                                i < review.rating
+                                  ? "fill-yellow-400 text-yellow-400"
+                                  : "text-gray-300"
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      {review.comment && (
+                        <p className="text-sm text-muted-foreground">{review.comment}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(review.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  ))}
+                  
+                  {reviews.length === 0 && (
+                    <div className="text-center py-8">
+                      <h3 className="text-lg font-semibold mb-2">No Reviews Yet</h3>
+                      <p className="text-muted-foreground">Customer reviews will appear here.</p>
                     </div>
                   )}
                 </div>

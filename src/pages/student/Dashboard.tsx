@@ -18,6 +18,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { RatingDialog } from "@/components/RatingDialog";
 
 const StudentDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -27,6 +28,12 @@ const StudentDashboard = () => {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [messes, setMesses] = useState<any[]>([]);
   const [myOrders, setMyOrders] = useState<any[]>([]);
+  const [ratingDialog, setRatingDialog] = useState<{
+    isOpen: boolean;
+    menuId: string;
+    messName: string;
+    mealType: string;
+  }>({ isOpen: false, menuId: "", messName: "", mealType: "" });
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -246,6 +253,43 @@ const StudentDashboard = () => {
     });
   };
 
+  const handleRateClick = (menuId: string, messName: string, mealType: string) => {
+    setRatingDialog({
+      isOpen: true,
+      menuId,
+      messName,
+      mealType,
+    });
+  };
+
+  const handleRatingSubmit = async (rating: number, comment: string) => {
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from("reviews")
+      .insert({
+        reviewer_id: userId,
+        menu_id: ratingDialog.menuId,
+        rating,
+        comment: comment || null,
+      });
+
+    if (error) {
+      console.error("Rating error:", error);
+      toast({
+        title: "Error",
+        description: "Failed to submit rating. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Rating Submitted!",
+      description: "Thank you for your feedback.",
+    });
+  };
+
   const filteredMesses = messes.filter(mess => {
     const matchesSearch = mess.name.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSearch;
@@ -287,7 +331,11 @@ const StudentDashboard = () => {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline">
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => handleRateClick(meal.menuId, "", mealType)}
+                >
                   Rate
                 </Button>
                 <Button 
@@ -472,6 +520,14 @@ const StudentDashboard = () => {
           </div>
         )}
       </div>
+
+      <RatingDialog
+        isOpen={ratingDialog.isOpen}
+        onClose={() => setRatingDialog({ ...ratingDialog, isOpen: false })}
+        onSubmit={handleRatingSubmit}
+        messName={ratingDialog.messName}
+        mealType={ratingDialog.mealType}
+      />
     </div>
   );
 };

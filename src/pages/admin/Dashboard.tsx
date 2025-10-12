@@ -25,6 +25,7 @@ const AdminDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [pendingMesses, setPendingMesses] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
   const [stats, setStats] = useState({
     totalStudents: 0,
     activeMesses: 0,
@@ -39,6 +40,7 @@ const AdminDashboard = () => {
     fetchPendingMesses();
     fetchOrders();
     fetchStats();
+    fetchReviews();
 
     // Subscribe to real-time updates for messes
     const messesChannel = supabase
@@ -102,6 +104,7 @@ const AdminDashboard = () => {
         },
         () => {
           fetchStats();
+          fetchReviews();
         }
       )
       .subscribe();
@@ -182,6 +185,33 @@ const AdminDashboard = () => {
     }
 
     setOrders(data || []);
+  };
+
+  const fetchReviews = async () => {
+    const { data, error } = await supabase
+      .from("reviews")
+      .select(`
+        *,
+        profiles!reviews_reviewer_id_fkey (
+          full_name,
+          email
+        ),
+        menus!reviews_menu_id_fkey (
+          meal_type,
+          date,
+          messes (
+            name
+          )
+        )
+      `)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching reviews:", error);
+      return;
+    }
+
+    setReviews(data || []);
   };
 
   const fetchStats = async () => {
@@ -379,10 +409,11 @@ const AdminDashboard = () => {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="pending">Pending Approvals</TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
+            <TabsTrigger value="reviews">Reviews</TabsTrigger>
             <TabsTrigger value="reports">Reports</TabsTrigger>
             <TabsTrigger value="users">User Management</TabsTrigger>
           </TabsList>
@@ -523,6 +554,55 @@ const AdminDashboard = () => {
                     <div className="text-center py-8">
                       <h3 className="text-lg font-semibold mb-2">No Orders Yet</h3>
                       <p className="text-muted-foreground">Orders from students will appear here.</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="reviews" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>All Reviews</CardTitle>
+                <CardDescription>Student feedback from all messes</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {reviews.map((review) => (
+                    <div key={review.id} className="p-4 border rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <h4 className="font-semibold">{review.profiles?.full_name || "Unknown Student"}</h4>
+                          <Badge variant="outline">{review.menus?.messes?.name}</Badge>
+                          <Badge>{review.menus?.meal_type}</Badge>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {[...Array(5)].map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`w-4 h-4 ${
+                                i < review.rating
+                                  ? "fill-yellow-400 text-yellow-400"
+                                  : "text-gray-300"
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      {review.comment && (
+                        <p className="text-sm text-muted-foreground">{review.comment}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {review.profiles?.email} • {new Date(review.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  ))}
+                  
+                  {reviews.length === 0 && (
+                    <div className="text-center py-8">
+                      <h3 className="text-lg font-semibold mb-2">No Reviews Yet</h3>
+                      <p className="text-muted-foreground">Student reviews will appear here.</p>
                     </div>
                   )}
                 </div>
