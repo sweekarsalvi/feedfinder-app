@@ -13,7 +13,6 @@ import {
   Search,
   Check,
   X,
-  AlertTriangle,
   LogOut,
   User as UserIcon
 } from "lucide-react";
@@ -27,6 +26,7 @@ const AdminDashboard = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [topRatedMesses, setTopRatedMesses] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [stats, setStats] = useState({
     totalStudents: 0,
     activeMesses: 0,
@@ -43,6 +43,7 @@ const AdminDashboard = () => {
     fetchStats();
     fetchReviews();
     fetchTopRatedMesses();
+    fetchUsers();
 
     // Subscribe to real-time updates for messes
     const messesChannel = supabase
@@ -90,6 +91,7 @@ const AdminDashboard = () => {
         },
         () => {
           fetchStats();
+          fetchUsers();
         }
       )
       .subscribe();
@@ -276,6 +278,20 @@ const AdminDashboard = () => {
       .slice(0, 4);
 
     setTopRatedMesses(topMesses);
+  };
+
+  const fetchUsers = async () => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching users:", error);
+      return;
+    }
+
+    setUsers(data || []);
   };
 
   const fetchStats = async () => {
@@ -473,12 +489,11 @@ const AdminDashboard = () => {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="pending">Pending Approvals</TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="reviews">Reviews</TabsTrigger>
-            <TabsTrigger value="reports">Reports</TabsTrigger>
             <TabsTrigger value="users">User Management</TabsTrigger>
           </TabsList>
 
@@ -673,49 +688,13 @@ const AdminDashboard = () => {
             </Card>
           </TabsContent>
 
-          <TabsContent value="reports" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Reports</CardTitle>
-                <CardDescription>Student reports and feedback that need attention</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {recentReports.map((report) => (
-                    <div key={report.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-3">
-                          <AlertTriangle className={`w-4 h-4 ${
-                            report.severity === "high" ? "text-red-500" : 
-                            report.severity === "medium" ? "text-yellow-500" : "text-green-500"
-                          }`} />
-                          <h4 className="font-semibold">{report.type}</h4>
-                          <Badge variant="outline">{report.messName}</Badge>
-                          <Badge variant={report.status === "resolved" ? "secondary" : "destructive"}>
-                            {report.status}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Reported by {report.reportedBy} on {report.date}
-                        </p>
-                      </div>
-                      <Button variant="outline" size="sm">
-                        View Details
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           <TabsContent value="users" className="space-y-6">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle>User Management</CardTitle>
-                    <CardDescription>Manage students, mess owners, and other users</CardDescription>
+                    <CardDescription>Manage students, mess owners, and admins</CardDescription>
                   </div>
                   <div className="relative w-72">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
@@ -729,12 +708,53 @@ const AdminDashboard = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-8">
-                  <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">User Management</h3>
-                  <p className="text-muted-foreground">
-                    Advanced user management features coming soon. You can view user statistics in the overview tab.
-                  </p>
+                <div className="space-y-4">
+                  {users
+                    .filter(user => 
+                      user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                      user.email.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
+                    .map((user) => (
+                      <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-3">
+                            <h4 className="font-semibold">{user.full_name}</h4>
+                            <Badge variant={
+                              user.role === "admin" ? "destructive" :
+                              user.role === "mess_owner" ? "secondary" :
+                              "outline"
+                            }>
+                              {user.role}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {user.email} {user.phone && `• ${user.phone}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Joined: {new Date(user.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">
+                            User ID: {user.id.slice(0, 8)}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))
+                  }
+                  
+                  {users.filter(user => 
+                    user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    user.email.toLowerCase().includes(searchTerm.toLowerCase())
+                  ).length === 0 && (
+                    <div className="text-center py-8">
+                      <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No Users Found</h3>
+                      <p className="text-muted-foreground">
+                        {searchTerm ? "No users match your search." : "No users in the system yet."}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
