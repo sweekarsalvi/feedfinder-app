@@ -172,6 +172,11 @@ const StudentDashboard = () => {
     }
   };
 
+  // Check if student has ordered a specific menu item
+  const hasOrderedMenu = (menuId: string) => {
+    return myOrders.some(order => order.menu_id === menuId);
+  };
+
   const toggleFavorite = async (messId: any) => {
     if (!userId) return;
 
@@ -331,13 +336,15 @@ const StudentDashboard = () => {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => handleRateClick(meal.menuId, "", mealType)}
-                >
-                  Rate
-                </Button>
+                {hasOrderedMenu(meal.menuId) && (
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => handleRateClick(meal.menuId, "", mealType)}
+                  >
+                    Rate
+                  </Button>
+                )}
                 <Button 
                   size="sm" 
                   variant="default"
