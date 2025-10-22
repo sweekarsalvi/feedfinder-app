@@ -26,6 +26,7 @@ const AdminDashboard = () => {
   const [pendingMesses, setPendingMesses] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
+  const [topRatedMesses, setTopRatedMesses] = useState<any[]>([]);
   const [stats, setStats] = useState({
     totalStudents: 0,
     activeMesses: 0,
@@ -41,6 +42,7 @@ const AdminDashboard = () => {
     fetchOrders();
     fetchStats();
     fetchReviews();
+    fetchTopRatedMesses();
 
     // Subscribe to real-time updates for messes
     const messesChannel = supabase
@@ -105,6 +107,7 @@ const AdminDashboard = () => {
         () => {
           fetchStats();
           fetchReviews();
+          fetchTopRatedMesses();
         }
       )
       .subscribe();
@@ -212,6 +215,67 @@ const AdminDashboard = () => {
     }
 
     setReviews(data || []);
+  };
+
+  const fetchTopRatedMesses = async () => {
+    // Fetch all active messes
+    const { data: messesData, error: messesError } = await supabase
+      .from("messes")
+      .select("id, name")
+      .eq("is_active", true)
+      .eq("is_verified", true);
+
+    if (messesError || !messesData) {
+      console.error("Error fetching messes:", messesError);
+      return;
+    }
+
+    // Fetch all reviews with menu data
+    const { data: reviewsData, error: reviewsError } = await supabase
+      .from("reviews")
+      .select(`
+        rating,
+        menus!reviews_menu_id_fkey (
+          mess_id
+        )
+      `);
+
+    if (reviewsError) {
+      console.error("Error fetching reviews:", reviewsError);
+    }
+
+    // Fetch all orders
+    const { data: ordersData, error: ordersError } = await supabase
+      .from("orders")
+      .select("mess_id");
+
+    if (ordersError) {
+      console.error("Error fetching orders:", ordersError);
+    }
+
+    // Calculate ratings and orders for each mess
+    const messesWithStats = messesData.map(mess => {
+      const messReviews = reviewsData?.filter(r => r.menus?.mess_id === mess.id) || [];
+      const averageRating = messReviews.length > 0
+        ? messReviews.reduce((sum, r) => sum + r.rating, 0) / messReviews.length
+        : 0;
+      
+      const orderCount = ordersData?.filter(o => o.mess_id === mess.id).length || 0;
+
+      return {
+        name: mess.name,
+        rating: averageRating,
+        orders: orderCount
+      };
+    });
+
+    // Sort by rating descending and take top 4
+    const topMesses = messesWithStats
+      .filter(m => m.rating > 0) // Only include messes with ratings
+      .sort((a, b) => b.rating - a.rating)
+      .slice(0, 4);
+
+    setTopRatedMesses(topMesses);
   };
 
   const fetchStats = async () => {
@@ -443,26 +507,25 @@ const AdminDashboard = () => {
               <Card>
                 <CardHeader>
                   <CardTitle>Top Rated Messes</CardTitle>
-                  <CardDescription>Best performing messes this week</CardDescription>
+                  <CardDescription>Best performing messes based on reviews</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {[
-                    { name: "Sunrise Mess", rating: 4.8, orders: 156 },
-                    { name: "Spice Garden", rating: 4.6, orders: 142 },
-                    { name: "Healthy Kitchen", rating: 4.5, orders: 128 },
-                    { name: "Tasty Bites", rating: 4.4, orders: 119 }
-                  ].map((mess, index) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{mess.name}</p>
-                        <p className="text-sm text-muted-foreground">{mess.orders} orders</p>
+                  {topRatedMesses.length > 0 ? (
+                    topRatedMesses.map((mess, index) => (
+                      <div key={index} className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">{mess.name}</p>
+                          <p className="text-sm text-muted-foreground">{mess.orders} orders</p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                          <span className="font-semibold">{mess.rating.toFixed(1)}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                        <span className="font-semibold">{mess.rating}</span>
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No rated messes yet</p>
+                  )}
                 </CardContent>
               </Card>
             </div>
